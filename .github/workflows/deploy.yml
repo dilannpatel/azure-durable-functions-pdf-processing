@@ -48,7 +48,9 @@ jobs:
 
     - name: 'Upload any new PDFs to Blob Storage'
       run: |
-        az storage blob sync \
+        az storage blob upload-batch \
+          --destination pdf-uploads \
           --source ./files-to-upload \
-          --container pdf-uploads \
-          --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+          --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+          --pattern "*.pdf" \
+          --no-progress

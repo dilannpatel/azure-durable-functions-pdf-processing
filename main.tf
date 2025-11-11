@@ -94,11 +94,20 @@ resource "azurerm_search_service" "ai_search" {
   sku                 = "standard"
 }
 
+resource "azurerm_log_analytics_workspace" "logs" {
+  name                = "logs-${random_string.suffix.result}"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
 resource "azurerm_application_insights" "app_insights" {
   name                = "appi-${random_string.suffix.result}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   application_type    = "web"
+  workspace_id        = azurerm_log_analytics_workspace.logs.id
 }
 
 resource "azurerm_service_plan" "plan" {

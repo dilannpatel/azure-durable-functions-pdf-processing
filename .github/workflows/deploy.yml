@@ -45,3 +45,10 @@ jobs:
         # Get this name from your Terraform output
         app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
         package: '.' # Deploy the current directory
+
+    - name: 'Upload any new PDFs to Blob Storage'
+      run: |
+        az storage blob sync \
+          --source ./files-to-upload \
+          --container pdf-uploads \
+          --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"

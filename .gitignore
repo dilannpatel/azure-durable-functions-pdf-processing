@@ -47,8 +47,29 @@ __blobstorage__
 __queuestorage__
 __azurite_db*__.json
 
-echo ".terraform/" >> .gitignore
-echo "*.tfstate" >> .gitignore
-echo "*.tfstate.backup" >> .gitignore
-echo ".terraform.lock.hcl" >> .gitignore
-echo "secrets.auto.tfvars" >> .gitignore
+# Python
+.python_packages/
+.env
+.venv
+env/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+secrets.auto.tfvars
+
+# Azure
+local.settings.json
+
+# VSCode
+.vs/
+
+# Other
+bin/
+obj/

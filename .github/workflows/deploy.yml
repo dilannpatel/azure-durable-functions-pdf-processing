@@ -1,4 +1,4 @@
-name: Deploy Python Function to Azure
+name: Deploy Azure Function
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
     steps:
     - name: 'Checkout GitHub Action'
       uses: actions/checkout@v4
@@ -18,14 +17,17 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: 'Install dependencies'
+    - name: 'Create and activate venv'
       run: |
         python -m venv .venv
         source .venv/bin/activate
+
+    - name: 'Install dependencies'
+      run: |
+        # We must be inside the venv to run pip
+        source .venv/bin/activate
         pip install -r requirements.txt
-    
-    # --- THIS IS THE FIX ---
-    # We will log in using your Service Principal, just like your other project
+
     - name: 'Log in to Azure'
       uses: azure/login@v1
       with:
@@ -37,11 +39,9 @@ jobs:
             "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           }
 
-    # Now that we are logged in, we can deploy
     - name: 'Deploy to Azure Function App'
       uses: azure/functions-action@v1
       with:
-        # This must be the exact name from your Terraform output
-        app-name: 'pdf-processor-func-he610x2p' 
-        package: '.'
-        # We DON'T need a publish-profile because we are already logged in
+        # Get this name from your Terraform output
+        app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
+        package: '.' # Deploy the current directory

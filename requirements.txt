@@ -4,9 +4,15 @@
 
 azure-functions
 azure-functions-durable
+azure-storage-blob
+requests
 langchain
 langchain-openai
 langchain-community
+langchain-text-splitters
 azure-search-documents
 openai
 pypdf
+pydantic
+numpy
+azure-identity

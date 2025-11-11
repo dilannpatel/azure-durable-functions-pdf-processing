@@ -18,7 +18,6 @@ import atexit
 
 app = func.FunctionApp()
 
-
 @app.event_grid_trigger(arg_name="event")
 @app.durable_client_input(client_name="client")
 async def event_grid_trigger(event: func.EventGridEvent, client: df.DurableOrchestrationClient):

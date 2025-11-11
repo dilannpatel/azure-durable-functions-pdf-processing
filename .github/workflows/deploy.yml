@@ -1,4 +1,4 @@
-name: Deploy Azure Function
+name: Deploy Azure Function and Upload PDFs
 
 on:
   push:
@@ -8,25 +8,25 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    
     steps:
     - name: 'Checkout GitHub Action'
       uses: actions/checkout@v4
 
-    - name: 'Set up Python'
+    - name: 'Set up Python 3.11'
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
-    - name: 'Create and activate venv'
+    - name: 'Install dependencies and build package'
+      shell: bash
       run: |
-        python -m venv .venv
-        source .venv/bin/activate
-
-    - name: 'Install dependencies'
-      run: |
-        # We must be inside the venv to run pip
-        source .venv/bin/activate
-        pip install -r requirements.txt
+        # This forces the func tool to use 3.11
+        export FUNCTIONS_CORE_TOOLS_PYTHON_EXECUTABLE_PATH=$(which python)
+        
+        # This is the "local build" from your research
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
     - name: 'Log in to Azure'
       uses: azure/login@v1
@@ -42,12 +42,16 @@ jobs:
     - name: 'Deploy to Azure Function App'
       uses: azure/functions-action@v1
       with:
-        # Get this name from your Terraform output
         app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
         package: '.' # Deploy the current directory
+        
+        scm-do-build-during-deployment: false
+        enable-oryx-build: false
 
     - name: 'Upload any new PDFs to Blob Storage'
       run: |
+        mkdir -p ./files-to-upload
+        
         az storage blob upload-batch \
           --destination pdf-uploads \
           --source ./files-to-upload \

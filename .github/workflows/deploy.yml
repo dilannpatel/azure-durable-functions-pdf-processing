@@ -5,9 +5,6 @@ on:
     branches:
       - main
 
-env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -20,30 +17,36 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: 'Resolve Project Dependencies Using Pip'
+
+    - name: 'Install dependencies into package'
       shell: bash
       run: |
-        pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
         python -m pip install --upgrade pip
         pip install -r requirements.txt --target=".python_packages/lib/site-packages"
-        popd
 
+    - name: 'Log in to Azure'
+      uses: azure/login@v1
+      with:
+        creds: >
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          }
 
     - name: 'Deploy to Azure Function App'
       uses: azure/functions-action@v1
       with:
         app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-        package: '.' # Deploy the current directory (source code only)
-        publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+        package: '.' # Zips the directory, including the new .python_packages
         
-        scm-do-build-during-deployment: true
-        enable-oryx-build: true
+        scm-do-build-during-deployment: false
+        enable-oryx-build: false
 
     - name: 'Upload any new PDFs to Blob Storage'
       run: |
-        # Create the source folder just in case it's not in git
         mkdir -p ./files-to-upload
-        
         echo "Uploading files from ./files-to-upload to pdf-uploads..."
         az storage blob upload-batch \
           --destination pdf-uploads \

@@ -45,7 +45,7 @@ jobs:
           echo "Uploading files from ./files-to-upload to pdf-uploads..."
           az storage blob upload-batch \
             --destination pdf-uploads \
-            --source ./files-to-upload \
+            --source ./function_app/files-to-upload \
             --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
             --pattern "*.pdf" \
             --no-progress

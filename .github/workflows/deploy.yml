@@ -5,7 +5,7 @@ on:
       - main
 
 env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: './function_app'
 
 jobs:
   build-and-deploy:
@@ -22,20 +22,12 @@ jobs:
       - name: 'Create deployment package'
         shell: bash
         run: |
-          mkdir -p staging
-          
-          cp -r . staging/ || true
-          
-          rm -rf staging/.git staging/.github staging/.pytest_cache staging/__pycache__ staging/venv staging/.env staging/.venv staging/deployment-package.zip staging/staging
-          
-          cd staging
+          # Create zip from function_app directory only
+          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
           zip -r ../deployment-package.zip . -x "*.git*" "*venv*" "*__pycache__*" "*.pytest_cache*" ".env*" ".github*"
           cd ..
           
           ls -lh deployment-package.zip
-          
-          # Cleanup staging
-          rm -rf staging
 
       - name: 'Deploy to Azure Function App'
         uses: azure/functions-action@v1

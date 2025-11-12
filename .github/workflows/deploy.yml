@@ -18,13 +18,11 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: 'Install dependencies and build package'
+    # This installs all packages into a folder named '.python_packages'
+    # which will be zipped and deployed.
+    - name: 'Install dependencies for local build'
       shell: bash
       run: |
-        # This forces the func tool to use 3.11
-        export FUNCTIONS_CORE_TOOLS_PYTHON_EXECUTABLE_PATH=$(which python)
-        
-        # This is the "local build" from your research
         python -m pip install --upgrade pip
         pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
@@ -43,15 +41,17 @@ jobs:
       uses: azure/functions-action@v1
       with:
         app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-        package: '.' # Deploy the current directory
+        package: '.' # Zips the directory, including the new .python_packages
         
         scm-do-build-during-deployment: false
         enable-oryx-build: false
 
     - name: 'Upload any new PDFs to Blob Storage'
       run: |
+        # Create the source folder just in case it's not in git
         mkdir -p ./files-to-upload
         
+        echo "Uploading files from ./files-to-upload to pdf-uploads..."
         az storage blob upload-batch \
           --destination pdf-uploads \
           --source ./files-to-upload \

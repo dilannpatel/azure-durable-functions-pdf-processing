@@ -22,8 +22,20 @@ jobs:
       - name: 'Create deployment package'
         shell: bash
         run: |
-          zip -r deployment-package.zip . -x "*.git*" "*venv*" "*__pycache__*" "*.pytest_cache*" ".env*" ".github*"
+          mkdir -p staging
+          
+          cp -r . staging/ || true
+          
+          rm -rf staging/.git staging/.github staging/.pytest_cache staging/__pycache__ staging/venv staging/.env staging/.venv staging/deployment-package.zip staging/staging
+          
+          cd staging
+          zip -r ../deployment-package.zip . -x "*.git*" "*venv*" "*__pycache__*" "*.pytest_cache*" ".env*" ".github*"
+          cd ..
+          
           ls -lh deployment-package.zip
+          
+          # Cleanup staging
+          rm -rf staging
 
       - name: 'Deploy to Azure Function App'
         uses: azure/functions-action@v1

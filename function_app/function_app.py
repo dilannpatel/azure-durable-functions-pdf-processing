@@ -18,10 +18,6 @@ import atexit
 
 app = func.FunctionApp()
 
-@app.route(route="hello")
-def hello_world(req: func.HttpRequest) -> func.HttpResponse:
-    return func.HttpResponse("Hello World!")
-
 @app.event_grid_trigger(arg_name="event")
 @app.durable_client_input(client_name="client")
 async def event_grid_trigger(event: func.EventGridEvent, client: df.DurableOrchestrationClient):
@@ -51,7 +47,7 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
     
     try:
         # Pass the file name to the worker
-        ai_result = yield context.call_activity("process_pdf_activity", blob_file_name)
+        ai_result = yield context.call_activity("process_pdf", blob_file_name)
         
         logging.info(f"Successfully processed {blob_file_name}")
         
@@ -61,7 +57,7 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
 
 
 @app.activity_trigger(input_name="blobName")
-def process_pdf_activity(blobName: str):
+def process_pdf(blobName: str):
     logging.info(f"Activity started for: {blobName}")
     
 

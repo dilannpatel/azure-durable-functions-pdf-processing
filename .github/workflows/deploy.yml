@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+env:
+  AZURE_FUNCTIONAPP_NAME: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -17,6 +20,19 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: 'Install dependencies into package'
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+
+    - name: 'Archive function app'
+      shell: bash
+      run: |
+        # Zip the entire directory (code, .python_packages, etc.)
+        # The .funcignore file will automatically exclude .venv, .git, etc.
+        zip -r deployment.zip .
+        
     - name: 'Log in to Azure'
       uses: azure/login@v1
       with:
@@ -31,9 +47,10 @@ jobs:
     - name: 'Deploy to Azure Function App'
       uses: azure/functions-action@v1
       with:
-        app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-        package: '.'
-        publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+        
+        package: 'deployment.zip'
+        
         scm-do-build-during-deployment: false
         enable-oryx-build: false
 

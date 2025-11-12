@@ -35,6 +35,7 @@ jobs:
           app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
           package: deployment-package.zip
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          remote-build: true
 
 
       - name: 'Upload any new PDFs to Blob Storage'

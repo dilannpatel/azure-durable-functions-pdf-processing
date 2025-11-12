@@ -51,7 +51,7 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
     
     try:
         # Pass the file name to the worker
-        ai_result = yield context.call_activity("process_pdf", blob_file_name)
+        ai_result = yield context.call_activity("process_pdf_activity", blob_file_name)
         
         logging.info(f"Successfully processed {blob_file_name}")
         
@@ -61,7 +61,7 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
 
 
 @app.activity_trigger(input_name="blobName")
-def process_pdf(blobName: str):
+def process_pdf_activity(blobName: str):
     logging.info(f"Activity started for: {blobName}")
     
 

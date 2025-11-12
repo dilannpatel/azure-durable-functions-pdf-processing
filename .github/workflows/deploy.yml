@@ -41,7 +41,7 @@ jobs:
       - name: 'Upload any new PDFs to Blob Storage'
         shell: bash
         run: |
-          mkdir -p ./files-to-upload
+          mkdir -p ./function_app/files-to-upload
           echo "Uploading files from ./files-to-upload to pdf-uploads..."
           az storage blob upload-batch \
             --destination pdf-uploads \

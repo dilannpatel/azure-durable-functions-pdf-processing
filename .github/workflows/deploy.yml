@@ -8,7 +8,7 @@ env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: './function_app'
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: 'Checkout GitHub Action'
@@ -22,12 +22,29 @@ jobs:
       - name: 'Create deployment package'
         shell: bash
         run: |
-          # Create zip from function_app directory only
           cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          zip -r ../deployment-package.zip . -x "*.git*" "*venv*" "*__pycache__*" "*.pytest_cache*" ".env*" ".github*"
-          cd ..
-          
+          zip -r deployment-package.zip . -x "*.git*" "*venv*" "*__pycache__*" "*.pytest_cache*" ".env*" ".github*"
           ls -lh deployment-package.zip
+
+      - name: 'Upload artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/deployment-package.zip
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout GitHub Action'
+        uses: actions/checkout@v4
+
+      - name: 'Download artifact'
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+          path: .
 
       - name: 'Deploy to Azure Function App'
         uses: azure/functions-action@v1
@@ -42,7 +59,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p ./function_app/files-to-upload
-          echo "Uploading files from ./files-to-upload to pdf-uploads..."
+          echo "Uploading files from ./function_app/files-to-upload to pdf-uploads..."
           az storage blob upload-batch \
             --destination pdf-uploads \
             --source ./function_app/files-to-upload \

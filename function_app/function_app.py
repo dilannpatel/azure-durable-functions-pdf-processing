@@ -25,10 +25,16 @@ async def event_grid_trigger(event: func.EventGridEvent, client: df.DurableOrche
         blob_url = data['url']
         blob_name = blob_url.split('/pdf-uploads/')[-1]
         
-        logging.info(f"[EVENT GRID] New file detected: {blob_name}")
+        # Only process PDF files
+        if not blob_name.lower().endswith('.pdf'):
+            logging.info(f"[EVENT GRID] Skipping non-PDF file: {blob_name}")
+            return
+        
+        logging.info(f"[EVENT GRID] New PDF detected: {blob_name}")
 
         instance_id = await client.start_new("pdf_orchestrator", None, blob_name)
         logging.info(f"[EVENT GRID] Started orchestration with ID = '{instance_id}' for file: {blob_name}")
+
 
 
 @app.orchestration_trigger(context_name="context")
@@ -38,10 +44,12 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
     logging.info(f"[ORCHESTRATOR] Starting for: {blob_file_name}")
     
     try:
-        logging.info(f"[ORCHESTRATOR] Parallel tasks for {blob_file_name}")
+        # Run both tasks in PARALLEL
+        logging.info(f"[ORCHESTRATOR] Spawning parallel tasks for {blob_file_name}")
         task1 = context.call_activity("embed_pdf_to_search", blob_file_name)
         task2 = context.call_activity("process_pdf_secondary_task", blob_file_name)
         
+        # Wait for both to complete
         results = yield context.task_all([task1, task2])
         
         logging.info(f"[ORCHESTRATOR] Both tasks completed for {blob_file_name}")
@@ -56,6 +64,7 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
     except Exception as e:
         logging.error(f"[ORCHESTRATOR] Error processing {blob_file_name}: {e}")
         raise
+
 
 
 @app.activity_trigger(input_name="blobName")
@@ -129,13 +138,16 @@ def process_pdf_secondary_task(blobName: str):
         blob_content = blob_client.download_blob().readall()
         logging.info(f"[SECONDARY TASK] Downloaded {len(blob_content)} bytes.")
 
+        # Save to temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             temp_file.write(blob_content)
             temp_file_path = temp_file.name
 
+        # Load PDF
         loader = PyPDFLoader(temp_file_path)
         documents = loader.load()
         
+        # Extract metadata
         page_count = len(documents)
         total_chars = sum(len(doc.page_content) for doc in documents)
         
@@ -150,6 +162,7 @@ def process_pdf_secondary_task(blobName: str):
         
         logging.info(f"[SECONDARY TASK] Metadata extracted: {metadata}")
         
+        # Store metadata as JSON in pdf-results container
         metadata_blob_name = f"{blobName.rsplit('.', 1)[0]}_metadata.json"
         results_blob_client = blob_service_client.get_blob_client(
             container="pdf-results",
@@ -189,7 +202,7 @@ async def http_start(req: func.HttpRequest, client: df.DurableOrchestrationClien
     return client.create_check_status_response(req, instance_id)
 
 
-# Get status of all running/completed instances
+# NEW: Get status of all running/completed instances
 @app.route(route="processingStatus")
 @app.durable_client_input(client_name="client")
 async def get_processing_status(req: func.HttpRequest, client: df.DurableOrchestrationClient):
@@ -198,8 +211,10 @@ async def get_processing_status(req: func.HttpRequest, client: df.DurableOrchest
     Shows which files are currently being processed.
     """
     try:
+        # Get all instances from the past 24 hours
         instance_query = await client.get_status_all()
         
+        # Organize by status
         running = []
         completed = []
         failed = []

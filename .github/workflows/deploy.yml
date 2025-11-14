@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - langchain-addition
 
 env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: './function_app'

@@ -69,6 +69,20 @@ resource "azurerm_search_service" "ai_search" {
   depends_on = [azurerm_resource_group.rg]
 }
 
+resource "azurerm_cognitive_deployment" "openai_embedding_deployment" {
+  name                 = var.openai_model_name
+  cognitive_account_id = azurerm_cognitive_account.openai.id
+
+  model {
+    format  = "OpenAI"
+    name    = var.openai_model_name
+    version = var.openai_model_version
+  }
+  scale {
+    type = "Standard"
+  }
+}
+
 
 resource "azurerm_log_analytics_workspace" "logs" {
   name                = "${var.project_name}-logs-${random_string.suffix.result}"

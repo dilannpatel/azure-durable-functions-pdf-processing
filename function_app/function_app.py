@@ -1,10 +1,12 @@
 import os
 import json
 import logging
+from datetime import datetime
+
 import azure.functions as func
 import azure.durable_functions as df
-
 from azure.storage.blob import BlobServiceClient
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import AzureOpenAIEmbeddings
@@ -12,44 +14,53 @@ from langchain_community.vectorstores import AzureSearch
 
 import tempfile
 
+UPLOADS_CONTAINER = os.environ.get("PDF_UPLOADS_CONTAINER", "pdf-uploads")
+RESULTS_CONTAINER = os.environ.get("PDF_RESULTS_CONTAINER", "pdf-results")
+
+# PDF processing configuration
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+
 app = func.FunctionApp()
 
 @app.event_grid_trigger(arg_name="event")
 @app.durable_client_input(client_name="client")
 async def event_grid_trigger(event: func.EventGridEvent, client: df.DurableOrchestrationClient):
-    
-    event_type = event.event_type
-    
-    if event_type == "Microsoft.Storage.BlobCreated":
-        data = event.get_json()
-        blob_url = data['url']
-        blob_name = blob_url.split('/pdf-uploads/')[-1]
+    try:
+        event_type = event.event_type
         
-        # Only process PDF files
-        if not blob_name.lower().endswith('.pdf'):
-            logging.info(f"[EVENT GRID] Skipping non-PDF file: {blob_name}")
-            return
-        
-        logging.info(f"[EVENT GRID] New PDF detected: {blob_name}")
+        if event_type == "Microsoft.Storage.BlobCreated":
+            data = event.get_json()
+            blob_url = data['url']
+            blob_name = blob_url.split(f'/{UPLOADS_CONTAINER}/')[-1]
+            
+            # Only process PDF files
+            if not blob_name.lower().endswith('.pdf'):
+                logging.info(f"[EVENT GRID] Skipping non-PDF file: {blob_name}")
+                return
+            
+            logging.info(f"[EVENT GRID] New PDF detected: {blob_name}")
 
-        instance_id = await client.start_new("pdf_orchestrator", None, blob_name)
-        logging.info(f"[EVENT GRID] Started orchestration with ID = '{instance_id}' for file: {blob_name}")
-
+            instance_id = await client.start_new("pdf_orchestrator", None, blob_name)
+            logging.info(f"[EVENT GRID] Started orchestration {instance_id} for file: {blob_name}")
+    
+    except Exception as e:
+        logging.error(f"[EVENT GRID] Error: {e}", exc_info=True)
+        raise
 
 
 @app.orchestration_trigger(context_name="context")
 def pdf_orchestrator(context: df.DurableOrchestrationContext):
-    
+
     blob_file_name = context.get_input()
     logging.info(f"[ORCHESTRATOR] Starting for: {blob_file_name}")
     
     try:
-        # Run both tasks in PARALLEL
         logging.info(f"[ORCHESTRATOR] Spawning parallel tasks for {blob_file_name}")
         task1 = context.call_activity("embed_pdf_to_search", blob_file_name)
         task2 = context.call_activity("process_pdf_secondary_task", blob_file_name)
         
-        # Wait for both to complete
+        # Wait for both tasks to complete
         results = yield context.task_all([task1, task2])
         
         logging.info(f"[ORCHESTRATOR] Both tasks completed for {blob_file_name}")
@@ -62,46 +73,50 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
         }
         
     except Exception as e:
-        logging.error(f"[ORCHESTRATOR] Error processing {blob_file_name}: {e}")
+        logging.error(f"[ORCHESTRATOR] Error processing {blob_file_name}: {e}", exc_info=True)
         raise
-
 
 
 @app.activity_trigger(input_name="blobName")
 def embed_pdf_to_search(blobName: str):
-    """Activity 1: Download PDF, chunk it, and embed into Azure AI Search"""
-    logging.info(f"Embedding activity started for: {blobName}")
+    logging.info(f"[EMBEDDING] Activity started for: {blobName}")
     
     temp_file_path = None
     try:
-        logging.info(f"Downloading file {blobName} from storage...")
+        # Download PDF
+        logging.info(f"[EMBEDDING] Downloading {blobName} from {UPLOADS_CONTAINER}...")
         connection_string = os.environ["AzureWebJobsStorage"]
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        blob_client = blob_service_client.get_blob_client(container="pdf-uploads", blob=blobName)
+        blob_client = blob_service_client.get_blob_client(container=UPLOADS_CONTAINER, blob=blobName)
         
         blob_content = blob_client.download_blob().readall()
-        logging.info(f"Successfully downloaded {len(blob_content)} bytes.")
+        logging.info(f"[EMBEDDING] Downloaded {len(blob_content)} bytes")
 
+        # Save to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             temp_file.write(blob_content)
             temp_file_path = temp_file.name
         
-        logging.info(f"Saved PDF to temporary file: {temp_file_path}")
+        logging.info(f"[EMBEDDING] Saved to temporary file: {temp_file_path}")
 
+        logging.info("[EMBEDDING] Extracting text from PDF...")
         loader = PyPDFLoader(temp_file_path)
         documents = loader.load()
-        logging.info(f"Loaded {len(documents)} pages from PDF.")
+        logging.info(f"[EMBEDDING] Loaded {len(documents)} pages")
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        logging.info(f"[EMBEDDING] Splitting into chunks (size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP})...")
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
         chunks = text_splitter.split_documents(documents)
-        logging.info(f"Split document into {len(chunks)} chunks.")
+        logging.info(f"[EMBEDDING] Created {len(chunks)} chunks")
 
+        logging.info("[EMBEDDING] Initialising Azure OpenAI embeddings...")
         embeddings = AzureOpenAIEmbeddings(
             azure_deployment=os.environ["OPENAI_EMBEDDING_MODEL_NAME"],
             openai_api_key=os.environ["OPENAI_API_KEY"],
             azure_endpoint=os.environ["OPENAI_ENDPOINT"]
         )
 
+        logging.info("[EMBEDDING] Connecting to Azure AI Search...")
         vector_store = AzureSearch(
             azure_search_endpoint=os.environ["AI_SEARCH_ENDPOINT"],
             azure_search_key=os.environ["AI_SEARCH_API_KEY"],
@@ -109,49 +124,52 @@ def embed_pdf_to_search(blobName: str):
             embedding_function=embeddings.embed_query
         )
         
+        logging.info(f"[EMBEDDING] Adding {len(chunks)} chunks to search index...")
         vector_store.add_documents(documents=chunks)
+        logging.info("[EMBEDDING] Successfully added all chunks to search index")
         
         return f"Successfully embedded {len(chunks)} chunks into Azure Search."
 
     except Exception as e:
-        logging.error(f"Failed to embed PDF: {e}")
+        logging.error(f"[EMBEDDING] Failed: {e}", exc_info=True)
         raise
         
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
-            logging.info(f"Cleaning up temporary file: {temp_file_path}")
-            os.remove(temp_file_path)
+            try:
+                os.remove(temp_file_path)
+                logging.info(f"[EMBEDDING] Cleaned up temporary file")
+            except OSError as e:
+                logging.warning(f"[EMBEDDING] Cleanup failed: {e}")
+
 
 
 @app.activity_trigger(input_name="blobName")
 def process_pdf_secondary_task(blobName: str):
-    """Activity 2: Extract metadata and store in pdf-results container"""
-    logging.info(f"[SECONDARY TASK] Started for: {blobName}")
+    logging.info(f"[ANALYSIS] Activity started for: {blobName}")
     
     temp_file_path = None
     try:
-        logging.info(f"[SECONDARY TASK] Downloading file {blobName} from storage...")
+        logging.info(f"[ANALYSIS] Downloading {blobName} from {UPLOADS_CONTAINER}...")
         connection_string = os.environ["AzureWebJobsStorage"]
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        blob_client = blob_service_client.get_blob_client(container="pdf-uploads", blob=blobName)
+        blob_client = blob_service_client.get_blob_client(container=UPLOADS_CONTAINER, blob=blobName)
         
         blob_content = blob_client.download_blob().readall()
-        logging.info(f"[SECONDARY TASK] Downloaded {len(blob_content)} bytes.")
+        logging.info(f"[ANALYSIS] Downloaded {len(blob_content)} bytes")
 
-        # Save to temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             temp_file.write(blob_content)
             temp_file_path = temp_file.name
 
-        # Load PDF
+        logging.info("[ANALYSIS] Extracting text from PDF...")
         loader = PyPDFLoader(temp_file_path)
         documents = loader.load()
         
-        # Extract metadata
+        logging.info("[ANALYSIS] Analyzing PDF content...")
         page_count = len(documents)
         total_chars = sum(len(doc.page_content) for doc in documents)
         
-        from datetime import datetime
         metadata = {
             "file_name": blobName,
             "page_count": page_count,
@@ -160,61 +178,63 @@ def process_pdf_secondary_task(blobName: str):
             "status": "completed"
         }
         
-        logging.info(f"[SECONDARY TASK] Metadata extracted: {metadata}")
+        logging.info(f"[ANALYSIS] Metadata extracted: {json.dumps(metadata)}")
         
-        # Store metadata as JSON in pdf-results container
         metadata_blob_name = f"{blobName.rsplit('.', 1)[0]}_metadata.json"
         results_blob_client = blob_service_client.get_blob_client(
-            container="pdf-results",
+            container=RESULTS_CONTAINER,
             blob=metadata_blob_name
         )
         
         metadata_json = json.dumps(metadata, indent=2)
         results_blob_client.upload_blob(metadata_json, overwrite=True)
         
-        logging.info(f"[SECONDARY TASK] Metadata stored as: {metadata_blob_name}")
+        logging.info(f"[ANALYSIS] Metadata stored as: {metadata_blob_name}")
         
         return f"Metadata stored: {metadata_blob_name}"
 
     except Exception as e:
-        logging.error(f"[SECONDARY TASK] Failed: {e}")
+        logging.error(f"[ANALYSIS] Failed: {e}", exc_info=True)
         raise
         
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
-            logging.info(f"[SECONDARY TASK] Cleaning up temporary file: {temp_file_path}")
-            os.remove(temp_file_path)
+            try:
+                os.remove(temp_file_path)
+                logging.info(f"[ANALYSIS] Cleaned up temporary file")
+            except OSError as e:
+                logging.warning(f"[ANALYSIS] Cleanup failed: {e}")
 
 
-# HTTP starter (for manual testing)
+
 @app.route(route="startOrchestrator")
 @app.durable_client_input(client_name="client")
 async def http_start(req: func.HttpRequest, client: df.DurableOrchestrationClient):
-    
-    file_name = req.params.get('file')
-    if not file_name:
-        return func.HttpResponse("Please pass a 'file' parameter in the query string", status_code=400)
+    try:
+        file_name = req.params.get('file')
+        if not file_name:
+            return func.HttpResponse("Please pass a 'file' parameter in the query string", status_code=400)
 
-    logging.info(f"HTTP Starter manually triggering for: {file_name}")
+        if not file_name.lower().endswith('.pdf'):
+            return func.HttpResponse("Only PDF files are supported", status_code=400)
 
-    instance_id = await client.start_new("pdf_orchestrator", None, file_name)
-    
-    return client.create_check_status_response(req, instance_id)
+        logging.info(f"[HTTP] Starting orchestration for: {file_name}")
+        instance_id = await client.start_new("pdf_orchestrator", None, file_name)
+        
+        return client.create_check_status_response(req, instance_id)
+        
+    except Exception as e:
+        logging.error(f"[HTTP] Error: {e}", exc_info=True)
+        return func.HttpResponse(f"Error: {str(e)}", status_code=500)
 
 
-# NEW: Get status of all running/completed instances
 @app.route(route="processingStatus")
 @app.durable_client_input(client_name="client")
 async def get_processing_status(req: func.HttpRequest, client: df.DurableOrchestrationClient):
-    """
-    Returns status of all active and recent processing instances.
-    Shows which files are currently being processed.
-    """
     try:
-        # Get all instances from the past 24 hours
+        logging.info("[STATUS] Fetching orchestration instances...")
         instance_query = await client.get_status_all()
         
-        # Organize by status
         running = []
         completed = []
         failed = []
@@ -238,155 +258,26 @@ async def get_processing_status(req: func.HttpRequest, client: df.DurableOrchest
             elif instance.runtime_status.name == "Pending":
                 pending.append(info)
         
+        response_data = {
+            "summary": {
+                "running": len(running),
+                "completed": len(completed),
+                "failed": len(failed),
+                "pending": len(pending)
+            },
+            "running_files": running,
+            "completed_files": completed,
+            "failed_files": failed,
+            "pending_files": pending
+        }
+        
+        logging.info(f"[STATUS] Retrieved status for {len(instance_query)} instances")
+        
         return func.HttpResponse(
-            json.dumps({
-                "summary": {
-                    "running": len(running),
-                    "completed": len(completed),
-                    "failed": len(failed),
-                    "pending": len(pending)
-                },
-                "running_files": running,
-                "completed_files": completed,
-                "failed_files": failed,
-                "pending_files": pending
-            }, indent=2),
+            json.dumps(response_data, indent=2),
             mimetype="application/json"
         )
     
     except Exception as e:
-        logging.error(f"Error getting status: {e}")
+        logging.error(f"[STATUS] Error: {e}", exc_info=True)
         return func.HttpResponse(f"Error: {str(e)}", status_code=500)
-
-
-# import os
-# import json
-# import logging
-# import io
-# import requests
-# import azure.functions as func
-# import azure.durable_functions as df
-
-# from azure.storage.blob import BlobServiceClient
-# from langchain_community.document_loaders import PyPDFLoader
-# from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-# from langchain_openai import AzureOpenAIEmbeddings
-# from langchain_community.vectorstores import AzureSearch
-
-# import tempfile
-# import atexit
-
-# app = func.FunctionApp()
-
-# @app.event_grid_trigger(arg_name="event")
-# @app.durable_client_input(client_name="client")
-# async def event_grid_trigger(event: func.EventGridEvent, client: df.DurableOrchestrationClient):
-    
-#     event_type = event.event_type
-    
-#     if event_type == "Microsoft.Storage.BlobCreated":
-        
-#         data = event.get_json()
-        
-#         blob_url = data['url']
-
-#         blob_name = blob_url.split('/pdf-uploads/')[-1]
-        
-#         logging.info(f"Processing new file: {blob_name}")
-
-#         # Pass the FILE NAME (not the URL)
-#         instance_id = await client.start_new("pdf_orchestrator", None, blob_name)
-#         logging.info(f"Started orchestration with ID = '{instance_id}'.")
-
-
-# @app.orchestration_trigger(context_name="context")
-# def pdf_orchestrator(context: df.DurableOrchestrationContext):
-    
-#     blob_file_name = context.get_input()
-#     logging.info(f"Orchestrator started for: {blob_file_name}")
-    
-#     try:
-#         # Pass the file name to the worker
-#         ai_result = yield context.call_activity("process_pdf", blob_file_name)
-        
-#         logging.info(f"Successfully processed {blob_file_name}")
-        
-#     except Exception as e:
-#         logging.error(f"Error processing {blob_file_name}: {e}")
-#         raise
-
-
-# @app.activity_trigger(input_name="blobName")
-# def process_pdf(blobName: str):
-#     logging.info(f"Activity started for: {blobName}")
-    
-
-#     temp_file_path = None
-#     try:
-#         logging.info(f"Downloading file {blobName} from storage...")
-#         connection_string = os.environ["AzureWebJobsStorage"]
-#         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-#         blob_client = blob_service_client.get_blob_client(container="pdf-uploads", blob=blobName)
-        
-#         blob_content = blob_client.download_blob().readall()
-#         logging.info(f"Successfully downloaded {len(blob_content)} bytes.")
-
-
-#         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-#             temp_file.write(blob_content)
-#             temp_file_path = temp_file.name # Get the path, e.g., /tmp/xyz.pdf
-        
-#         logging.info(f"Saved PDF to temporary file: {temp_file_path}")
-
-#         loader = PyPDFLoader(temp_file_path)
-#         documents = loader.load()
-#         logging.info(f"Loaded {len(documents)} pages from PDF.")
-
-#         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-#         chunks = text_splitter.split_documents(documents)
-#         logging.info(f"Split document into {len(chunks)} chunks.")
-
-#         embeddings = AzureOpenAIEmbeddings(
-#             azure_deployment=os.environ["OPENAI_EMBEDDING_MODEL_NAME"],
-#             openai_api_key=os.environ["OPENAI_API_KEY"],
-#             azure_endpoint=os.environ["OPENAI_ENDPOINT"]
-#         )
-
-#         vector_store = AzureSearch(
-#             azure_search_endpoint=os.environ["AI_SEARCH_ENDPOINT"],
-#             azure_search_key=os.environ["AI_SEARCH_API_KEY"],
-#             index_name=os.environ["AI_SEARCH_INDEX_NAME"],
-#             embedding_function=embeddings.embed_query
-#         )
-        
-#         vector_store.add_documents(documents=chunks)
-        
-#         return f"Successfully processed and embedded {len(chunks)} chunks."
-
-#     except Exception as e:
-#         logging.error(f"Failed to process blob: {e}")
-#         raise
-        
-#     finally:
-#         if temp_file_path and os.path.exists(temp_file_path):
-#             logging.info(f"Cleaning up temporary file: {temp_file_path}")
-#             os.remove(temp_file_path)
-
-
-# # THE HTTP STARTER (For Local Testing)
-# @app.route(route="startOrchestrator")
-# @app.durable_client_input(client_name="client")
-# async def http_start(req: func.HttpRequest, client: df.DurableOrchestrationClient):
-    
-#     # Get the file name from the query string
-#     file_name = req.params.get('file')
-#     if not file_name:
-#         return func.HttpResponse("Please pass a 'file' parameter in the query string", status_code=400)
-
-#     logging.info(f"HTTP Starter manually triggering for: {file_name}")
-
-#     # Start the "Manager" and pass the FILE NAME
-#     instance_id = await client.start_new("pdf_orchestrator", None, file_name)
-    
-#     return client.create_check_status_response(req, instance_id)

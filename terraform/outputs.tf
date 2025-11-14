@@ -3,6 +3,22 @@ output "function_app_name" {
   value       = azurerm_linux_function_app.function_app.name
 }
 
+output "function_app_id" {
+  description = "ID of the deployed Azure Function App"
+  value       = azurerm_linux_function_app.function_app.id
+}
+
+output "resource_group_name" {
+  description = "Name of the Resource Group"
+  value       = azurerm_resource_group.rg.name
+}
+
+
+output "storage_account_name" {
+  description = "Name of the Storage Account"
+  value       = azurerm_storage_account.storage.name
+}
+
 output "storage_connection_string" {
   description = "Connection string for the main storage account"
   value       = azurerm_storage_account.storage.primary_connection_string
@@ -30,8 +46,3 @@ output "openai_primary_key" {
   value       = azurerm_cognitive_account.openai.primary_access_key
   sensitive   = true
 }
-
-# output "doc_intel_endpoint" {
-#   description = "Endpoint URL for the Document Intelligence service"
-#   value       = azurerm_cognitive_account.doc_intelligence.endpoint
-# }

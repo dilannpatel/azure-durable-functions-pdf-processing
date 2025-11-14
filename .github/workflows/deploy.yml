@@ -11,9 +11,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Downloads repo content into the workflow runnner so it can access the code
       - name: 'Checkout GitHub Action'
         uses: actions/checkout@v4
 
+        # Installs python in the build environment
       - name: 'Set up Python 3.11'
         uses: actions/setup-python@v5
         with:
@@ -26,6 +28,7 @@ jobs:
           zip -r deployment-package.zip . -x "*.git*" "*venv*" "*__pycache__*" "*.pytest_cache*" ".env*" ".github*"
           ls -lh deployment-package.zip
 
+        # Uploads the deployment package as an artifact to be used in the deploy job
       - name: 'Upload artifact'
         uses: actions/upload-artifact@v4
         with:

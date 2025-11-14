@@ -9,8 +9,11 @@ from azure.storage.blob import BlobServiceClient
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import AzureOpenAIEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_community.vectorstores import AzureSearch
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.tools import tool
+from langchain import hub
 
 import tempfile
 
@@ -22,6 +25,223 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
 app = func.FunctionApp()
+
+
+
+@tool
+def extract_candidate_info(cv_text: str) -> dict:
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    prompt = f"""
+    Extract the following information from this CV. Return as JSON:
+    - name: Full name of candidate
+    - email: Email address
+    - phone: Phone number
+    - location: Location/City
+    - years_of_experience: Total years of professional experience (estimate if not explicit)
+    
+    CV Text:
+    {cv_text[:2000]}
+    
+    Return ONLY valid JSON, no other text.
+    """
+    
+    response = llm.invoke(prompt)
+    try:
+        return json.loads(response.content)
+    except:
+        return {"error": "Could not parse candidate info"}
+
+
+@tool
+def extract_skills(cv_text: str) -> dict:
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    prompt = f"""
+    Extract all skills from this CV and categorize them. Return as JSON:
+    {{
+        "technical_skills": ["Python", "JavaScript", ...],
+        "soft_skills": ["Leadership", "Communication", ...],
+        "tools_frameworks": ["React", "Docker", ...],
+        "languages": ["English", "Spanish", ...],
+        "skill_count": total number of skills found
+    }}
+    
+    CV Text:
+    {cv_text[:3000]}
+    
+    Return ONLY valid JSON, no other text.
+    """
+    
+    response = llm.invoke(prompt)
+    try:
+        return json.loads(response.content)
+    except:
+        return {"error": "Could not parse skills"}
+
+
+@tool
+def extract_work_experience(cv_text: str) -> dict:
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    prompt = f"""
+    Extract work experience from this CV. Return as JSON:
+    {{
+        "experiences": [
+            {{
+                "position": "Job Title",
+                "company": "Company Name",
+                "duration": "Years",
+                "key_achievement": "Brief description"
+            }},
+            ...
+        ],
+        "total_positions": number of positions,
+        "career_progression": "Brief summary of career growth"
+    }}
+    
+    CV Text:
+    {cv_text[:3000]}
+    
+    Return ONLY valid JSON, no other text.
+    """
+    
+    response = llm.invoke(prompt)
+    try:
+        return json.loads(response.content)
+    except:
+        return {"error": "Could not parse work experience"}
+
+
+@tool
+def extract_education(cv_text: str) -> dict:
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    prompt = f"""
+    Extract education information from this CV. Return as JSON:
+    {{
+        "education": [
+            {{
+                "degree": "Bachelor of Science",
+                "field": "Computer Science",
+                "institution": "University Name",
+                "graduation_year": "2020"
+            }},
+            ...
+        ],
+        "has_advanced_degree": boolean,
+        "education_summary": "Brief summary"
+    }}
+    
+    CV Text:
+    {cv_text[:2000]}
+    
+    Return ONLY valid JSON, no other text.
+    """
+    
+    response = llm.invoke(prompt)
+    try:
+        return json.loads(response.content)
+    except:
+        return {"error": "Could not parse education"}
+
+
+@tool
+def generate_cv_summary(cv_text: str) -> str:
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    prompt = f"""
+    Based on this CV, write a 3-4 sentence executive summary highlighting the candidate's strengths and value proposition.
+    
+    CV Text:
+    {cv_text[:2000]}
+    """
+    
+    response = llm.invoke(prompt)
+    return response.content
+
+
+@tool
+def rate_cv_quality(cv_text: str) -> dict:
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    prompt = f"""
+    Rate this CV on the following dimensions (1-10 scale). Return as JSON:
+    {{
+        "completeness": score (0-10),
+        "clarity": score (0-10),
+        "skills_presentation": score (0-10),
+        "achievement_focus": score (0-10),
+        "overall_quality": score (0-10),
+        "strengths": ["List of strengths"],
+        "improvements": ["List of improvements"]
+    }}
+    
+    CV Text:
+    {cv_text[:2000]}
+    
+    Return ONLY valid JSON, no other text.
+    """
+    
+    response = llm.invoke(prompt)
+    try:
+        return json.loads(response.content)
+    except:
+        return {"error": "Could not rate CV"}
+
+
+
+def create_cv_analysis_agent():
+    llm = AzureChatOpenAI(
+        model="gpt-4",
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=0
+    )
+    
+    tools = [
+        extract_candidate_info,
+        extract_skills,
+        extract_work_experience,
+        extract_education,
+        generate_cv_summary,
+        rate_cv_quality
+    ]
+    
+    # Use the ReAct prompt template
+    prompt = hub.pull("hwchase17/openai-tools-agent")
+    
+    agent = create_openai_tools_agent(llm, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    
+    return agent_executor
+
+
+
+
 
 @app.event_grid_trigger(arg_name="event")
 @app.durable_client_input(client_name="client")
@@ -58,7 +278,8 @@ def pdf_orchestrator(context: df.DurableOrchestrationContext):
     try:
         logging.info(f"[ORCHESTRATOR] Spawning parallel tasks for {blob_file_name}")
         task1 = context.call_activity("embed_pdf_to_search", blob_file_name)
-        task2 = context.call_activity("process_pdf_secondary_task", blob_file_name)
+        task2 = context.call_activity("analyse_cv_with_agent", blob_file_name)
+
         
         # Wait for both tasks to complete
         results = yield context.task_all([task1, task2])
@@ -144,66 +365,91 @@ def embed_pdf_to_search(blobName: str):
 
 
 
+
 @app.activity_trigger(input_name="blobName")
-def process_pdf_secondary_task(blobName: str):
-    logging.info(f"[ANALYSIS] Activity started for: {blobName}")
+def analyse_cv_with_agent(blobName: str):
+    logging.info(f"[AGENT] CV analysis started for: {blobName}")
     
     temp_file_path = None
     try:
-        logging.info(f"[ANALYSIS] Downloading {blobName} from {UPLOADS_CONTAINER}...")
+        # Download CV
         connection_string = os.environ["AzureWebJobsStorage"]
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         blob_client = blob_service_client.get_blob_client(container=UPLOADS_CONTAINER, blob=blobName)
         
         blob_content = blob_client.download_blob().readall()
-        logging.info(f"[ANALYSIS] Downloaded {len(blob_content)} bytes")
+        logging.info(f"[AGENT] Downloaded {len(blob_content)} bytes")
 
+        # Extract text from PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             temp_file.write(blob_content)
             temp_file_path = temp_file.name
 
-        logging.info("[ANALYSIS] Extracting text from PDF...")
+        logging.info("[AGENT] Extracting text from CV...")
         loader = PyPDFLoader(temp_file_path)
         documents = loader.load()
+        cv_text = "\n".join([doc.page_content for doc in documents])
+        logging.info(f"[AGENT] Extracted {len(cv_text)} characters of text")
+
+        # Initialize agent
+        logging.info("[AGENT] Initializing CV analysis agent...")
+        agent = create_cv_analysis_agent()
+
+        # Run agent
+        logging.info("[AGENT] Running agent analysis...")
+        agent_input = f"""
+        Analyze this CV comprehensively. Use all available tools to:
+        1. Extract candidate information (name, email, phone, location, experience)
+        2. Extract all skills (technical, soft, tools, languages)
+        3. Extract work experience with key achievements
+        4. Extract education details
+        5. Generate an executive summary
+        6. Rate the CV quality and provide improvement suggestions
         
-        logging.info("[ANALYSIS] Analyzing PDF content...")
-        page_count = len(documents)
-        total_chars = sum(len(doc.page_content) for doc in documents)
+        CV Text:
+        {cv_text}
         
-        metadata = {
+        Return a comprehensive analysis using all tools.
+        """
+        
+        agent_result = agent.invoke({"input": agent_input})
+        logging.info("[AGENT] Agent analysis completed")
+
+        # Structure the analysis results
+        analysis = {
             "file_name": blobName,
-            "page_count": page_count,
-            "total_characters": total_chars,
+            "analysis_type": "CV Analysis",
+            "agent_insights": agent_result.get("output", ""),
             "processed_at": datetime.now().isoformat(),
             "status": "completed"
         }
-        
-        logging.info(f"[ANALYSIS] Metadata extracted: {json.dumps(metadata)}")
-        
-        metadata_blob_name = f"{blobName.rsplit('.', 1)[0]}_metadata.json"
+
+        # Store results
+        results_blob_name = f"{blobName.rsplit('.', 1)[0]}_cv_analysis.json"
         results_blob_client = blob_service_client.get_blob_client(
             container=RESULTS_CONTAINER,
-            blob=metadata_blob_name
+            blob=results_blob_name
         )
         
-        metadata_json = json.dumps(metadata, indent=2)
-        results_blob_client.upload_blob(metadata_json, overwrite=True)
+        results_json = json.dumps(analysis, indent=2)
+        results_blob_client.upload_blob(results_json, overwrite=True)
         
-        logging.info(f"[ANALYSIS] Metadata stored as: {metadata_blob_name}")
+        logging.info(f"[AGENT] Analysis stored as: {results_blob_name}")
         
-        return f"Metadata stored: {metadata_blob_name}"
+        return f"CV analysis completed and stored: {results_blob_name}"
 
     except Exception as e:
-        logging.error(f"[ANALYSIS] Failed: {e}", exc_info=True)
+        logging.error(f"[AGENT] Failed: {e}", exc_info=True)
         raise
         
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
-                logging.info(f"[ANALYSIS] Cleaned up temporary file")
             except OSError as e:
-                logging.warning(f"[ANALYSIS] Cleanup failed: {e}")
+                logging.warning(f"[AGENT] Cleanup failed: {e}")
+
+
 
 
 

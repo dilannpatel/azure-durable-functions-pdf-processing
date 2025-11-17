@@ -32,7 +32,9 @@ def get_llm():
         return AzureChatOpenAI(
             model="gpt-4",
             api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-            temperature=0
+            temperature=0,
+            azure_endpoint=os.environ["OPENAI_ENDPOINT"],
+            openai_api_key=os.environ["OPENAI_API_KEY"]
         )
     except Exception as e:
         logging.error(f"Failed to initialize LLM: {e}")

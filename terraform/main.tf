@@ -69,19 +69,37 @@ resource "azurerm_search_service" "ai_search" {
   depends_on = [azurerm_resource_group.rg]
 }
 
+# Text Embedding Ada 002 Deployment
 resource "azurerm_cognitive_deployment" "openai_embedding_deployment" {
-  name                 = var.openai_model_name
+  name                 = var.openai_embedding_model_name
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
   model {
     format  = "OpenAI"
-    name    = var.openai_model_name
-    version = var.openai_model_version
+    name    = var.openai_embedding_model_name
+    version = var.openai_embedding_model_version
   }
   scale {
     type = "Standard"
   }
 }
+
+# # GPT-3.5-Turbo Deployment
+# resource "azurerm_cognitive_deployment" "openai_gpt4_deployment" {
+#   name                 = var.openai_gpt4_model_name
+#   cognitive_account_id = azurerm_cognitive_account.openai.id
+
+#   model {
+#     format  = "OpenAI"
+#     name    = "gpt-35-turbo"
+#     version = var.openai_gpt4_model_version
+#   }
+#   scale {
+#     type = "Standard"
+#   }
+
+#   depends_on = [azurerm_cognitive_deployment.openai_embedding_deployment]
+# }
 
 
 resource "azurerm_log_analytics_workspace" "logs" {
@@ -110,7 +128,7 @@ resource "azurerm_service_plan" "plan" {
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   os_type             = "Linux"
-  sku_name            = "Y1" # Consumption plan
+  sku_name            = var.app_service_plan_sku
 
   depends_on = [azurerm_resource_group.rg]
 }
@@ -149,7 +167,8 @@ resource "azurerm_linux_function_app" "function_app" {
 
     "OPENAI_ENDPOINT"            = azurerm_cognitive_account.openai.endpoint
     "OPENAI_API_KEY"             = azurerm_cognitive_account.openai.primary_access_key
-    "OPENAI_EMBEDDING_MODEL_NAME" = var.openai_model_name
+    "OPENAI_EMBEDDING_MODEL_NAME" = var.openai_embedding_model_name
+    "OPENAI_GPT4_MODEL_NAME"     = var.openai_gpt4_model_name
 
     "APPINSIGHTS_INSTRUMENTATIONKEY" = azurerm_application_insights.app_insights.instrumentation_key
   }
@@ -158,7 +177,9 @@ resource "azurerm_linux_function_app" "function_app" {
     azurerm_storage_account.storage,
     azurerm_service_plan.plan,
     azurerm_search_service.ai_search,
-    azurerm_cognitive_account.openai
+    azurerm_cognitive_account.openai,
+    azurerm_cognitive_deployment.openai_embedding_deployment,
+    # azurerm_cognitive_deployment.openai_gpt4_deployment
   ]
 }
 
@@ -183,28 +204,3 @@ resource "azurerm_eventgrid_event_subscription" "pdf_trigger_subscription" {
 
   depends_on = [azurerm_linux_function_app.function_app]
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

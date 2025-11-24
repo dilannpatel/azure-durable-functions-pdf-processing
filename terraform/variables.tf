@@ -56,16 +56,28 @@ variable "ai_search_index_name" {
   default     = "pdf-index"
 }
 
-variable "openai_model_name" {
-  description = "OpenAI embedding model name"
+variable "openai_embedding_model_name" {
+  description = "OpenAI embedding model deployment name"
   type        = string
   default     = "text-embedding-ada-002"
 }
 
-variable "openai_model_version" {
+variable "openai_embedding_model_version" {
   description = "OpenAI embedding model version"
   type        = string
   default     = "2"
+}
+
+variable "openai_gpt4_model_name" {
+  description = "OpenAI GPT-4 model deployment name"
+  type        = string
+  default     = "gpt-4"
+}
+
+variable "openai_gpt4_model_version" {
+  description = "OpenAI GPT-4 model version"
+  type        = string
+  default     = "turbo-2024-04-09"
 }
 
 variable "log_retention_days" {
@@ -86,4 +98,10 @@ variable "python_version" {
   description = "Python version for Azure Functions"
   type        = string
   default     = "3.11"
+}
+
+variable "app_service_plan_sku" {
+  description = "SKU for App Service Plan (Y1 = Consumption, B1 = Basic, S1 = Standard)"
+  type        = string
+  default     = "Y1" 
 }

@@ -11,9 +11,11 @@ langchain-community==0.3.31
 langchain-core==0.3.79
 langchain-openai==0.3.35
 langchain-text-splitters==0.3.11
+langchain-ollama==0.2.1
 azure-search-documents
 openai
 pypdf
 pydantic
 numpy
 azure-identity
+faiss-cpu==1.13.0
